@@ -1,5 +1,5 @@
 /// 📊 Backend Analytics Service
-/// Fetches data from your server
+/// Fetches data from your server (works with or without localhost)
 
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -7,26 +7,28 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/analytics_model.dart';
 
 class BackendAnalyticsService {
-  // Connect to your local Python backend server
-  static String get serverUrl => 
-      dotenv.env['SERVER_URL'] ?? 'http://localhost:3000';
+  // Get server URL from .env, fallback to empty (will throw error if not set)
+  static String? get serverUrl => dotenv.env['SERVER_URL'];
 
   static Future<AnalyticsData> fetchAnalytics() async {
+    // Check if SERVER_URL is configured
+    if (serverUrl == null || serverUrl!.isEmpty) {
+      throw Exception('SERVER_URL not configured');
+    }
+
     try {
-      print('🔄 Fetching analytics from: $serverUrl/api/analytics');
-      
       final response = await http.get(
         Uri.parse('$serverUrl/api/analytics'),
         headers: {'Content-Type': 'application/json'},
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Request timeout');
+        },
       );
 
-      print('📡 Response status: ${response.statusCode}');
-      print('📦 Response body: ${response.body}');
-
       if (response.statusCode != 200) {
-        throw Exception(
-          'Server returned ${response.statusCode}: ${response.body}',
-        );
+        throw Exception('Server error: ${response.statusCode}');
       }
 
       final decoded = json.decode(response.body);
@@ -36,10 +38,9 @@ class BackendAnalyticsService {
         return AnalyticsData.fromJson(decoded['data']);
       }
 
-      throw Exception('Invalid response format: $decoded');
+      throw Exception('Invalid response format');
     } catch (e) {
-      print('❌ Error fetching analytics: $e');
-      throw Exception('Failed to fetch analytics: $e');
+      throw Exception('Backend unavailable: $e');
     }
   }
 }

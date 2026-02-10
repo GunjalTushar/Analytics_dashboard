@@ -11,7 +11,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/analytics_model.dart';
-import '../services/backend_analytics_service.dart';
+import '../services/google_analytics_direct.dart';
 
 class AnalyticsDashboardScreen extends StatefulWidget {
   const AnalyticsDashboardScreen({super.key});
@@ -39,8 +39,8 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
     });
 
     try {
-      // Fetching real data from local backend
-      final result = await BackendAnalyticsService.fetchAnalytics();
+      // Fetch directly from Google Analytics (no localhost needed)
+      final result = await GoogleAnalyticsDirect.fetchAnalytics();
       
       setState(() => data = result);
     } catch (e) {
@@ -179,7 +179,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           gradient: LinearGradient(
-            colors: [color.withOpacity(0.1), Colors.white],
+            colors: [color.withValues(alpha: 0.1), Colors.white],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -340,8 +340,8 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     show: true,
                     gradient: LinearGradient(
                       colors: [
-                        Colors.blue.withOpacity(0.2),
-                        Colors.blue.withOpacity(0.05),
+                        Colors.blue.withValues(alpha: 0.2),
+                        Colors.blue.withValues(alpha: 0.05),
                       ],
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,

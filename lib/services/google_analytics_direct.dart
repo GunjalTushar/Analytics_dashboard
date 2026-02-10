@@ -1,11 +1,12 @@
-/// ⚠️ DIRECT GOOGLE ANALYTICS ACCESS (NOT RECOMMENDED FOR PRODUCTION)
+/// 📊 Direct Google Analytics Access
 /// 
-/// ✅ SECURITY: All credentials loaded from environment variables
-/// For production, use a backend proxy instead.
+/// ✅ Fetches data directly from Google Analytics API (no localhost needed)
+/// ✅ All credentials loaded from environment variables
 
 import 'dart:convert';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../models/analytics_model.dart';
 
 class GoogleAnalyticsDirect {
   // ✅ Credentials loaded from .env file
@@ -34,13 +35,24 @@ class GoogleAnalyticsDirect {
   }
 
   /// Fetch analytics data directly from Google Analytics API
-  static Future<Map<String, dynamic>> fetchAnalytics() async {
+  static Future<AnalyticsData> fetchAnalytics() async {
     try {
-      // Create service account credentials
+      // Extract project ID from service account email
+      // Format: service-name@project-id.iam.gserviceaccount.com
+      final projectId = serviceAccountEmail.split('@')[1].split('.')[0];
+      
+      // Create service account credentials with all required fields
       final accountCredentials = auth.ServiceAccountCredentials.fromJson({
         "type": "service_account",
-        "client_email": serviceAccountEmail,
+        "project_id": projectId,
+        "private_key_id": "dummy", // Not required for authentication
         "private_key": privateKey,
+        "client_email": serviceAccountEmail,
+        "client_id": "dummy", // Not required for authentication
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/${Uri.encodeComponent(serviceAccountEmail)}"
       });
 
       // Get access token
@@ -50,20 +62,14 @@ class GoogleAnalyticsDirect {
         scopes,
       );
 
-      // Call Google Analytics Data API
-      final response = await client.post(
+      // Fetch overview data (totals)
+      final overviewResponse = await client.post(
         Uri.parse(
           'https://analyticsdata.googleapis.com/v1beta/properties/$propertyId:runReport',
         ),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
-          "dateRanges": [
-            {"startDate": "30daysAgo", "endDate": "today"}
-          ],
-          "dimensions": [
-            {"name": "date"},
-            {"name": "country"}
-          ],
+          "dateRanges": [{"startDate": "30daysAgo", "endDate": "today"}],
           "metrics": [
             {"name": "activeUsers"},
             {"name": "sessions"},
@@ -73,15 +79,108 @@ class GoogleAnalyticsDirect {
         }),
       );
 
+      // Fetch daily users data
+      final dailyResponse = await client.post(
+        Uri.parse(
+          'https://analyticsdata.googleapis.com/v1beta/properties/$propertyId:runReport',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          "dateRanges": [{"startDate": "30daysAgo", "endDate": "today"}],
+          "dimensions": [{"name": "date"}],
+          "metrics": [{"name": "activeUsers"}],
+        }),
+      );
+
+      // Fetch country data
+      final countryResponse = await client.post(
+        Uri.parse(
+          'https://analyticsdata.googleapis.com/v1beta/properties/$propertyId:runReport',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          "dateRanges": [{"startDate": "30daysAgo", "endDate": "today"}],
+          "dimensions": [{"name": "country"}],
+          "metrics": [{"name": "activeUsers"}],
+        }),
+      );
+
       client.close();
 
-      if (response.statusCode != 200) {
-        throw Exception('Google Analytics API error: ${response.statusCode}');
+      // Check responses
+      if (overviewResponse.statusCode != 200) {
+        throw Exception('Overview API error: ${overviewResponse.statusCode}');
+      }
+      if (dailyResponse.statusCode != 200) {
+        throw Exception('Daily API error: ${dailyResponse.statusCode}');
+      }
+      if (countryResponse.statusCode != 200) {
+        throw Exception('Country API error: ${countryResponse.statusCode}');
       }
 
-      return json.decode(response.body);
+      // Parse responses
+      final overviewData = json.decode(overviewResponse.body);
+      final dailyData = json.decode(dailyResponse.body);
+      final countryData = json.decode(countryResponse.body);
+
+      // Format the data
+      return _formatAnalyticsData(overviewData, dailyData, countryData);
     } catch (e) {
       throw Exception('Failed to fetch from Google Analytics: $e');
     }
+  }
+
+  static AnalyticsData _formatAnalyticsData(
+    Map<String, dynamic> overviewData,
+    Map<String, dynamic> dailyData,
+    Map<String, dynamic> countryData,
+  ) {
+    // Parse overview
+    final overviewRows = overviewData['rows'] as List?;
+    String activeUsers = '0';
+    String sessions = '0';
+    String screenPageViews = '0';
+    String engagementRate = '0%';
+
+    if (overviewRows != null && overviewRows.isNotEmpty) {
+      final row = overviewRows[0];
+      final metrics = row['metricValues'] as List;
+      activeUsers = metrics[0]['value'] ?? '0';
+      sessions = metrics[1]['value'] ?? '0';
+      screenPageViews = metrics[2]['value'] ?? '0';
+      final engagement = double.tryParse(metrics[3]['value'] ?? '0') ?? 0;
+      engagementRate = '${(engagement * 100).toStringAsFixed(1)}%';
+    }
+
+    // Parse daily users
+    final dailyRows = dailyData['rows'] as List? ?? [];
+    final dailyUsers = dailyRows.map((row) {
+      final date = row['dimensionValues'][0]['value'];
+      final users = int.tryParse(row['metricValues'][0]['value'] ?? '0') ?? 0;
+      return DailyUsers(date: date, users: users);
+    }).toList();
+
+    dailyUsers.sort((a, b) => a.date.compareTo(b.date));
+
+    // Parse top countries
+    final countryRows = countryData['rows'] as List? ?? [];
+    final topCountries = countryRows.map((row) {
+      final country = row['dimensionValues'][0]['value'];
+      final users = int.tryParse(row['metricValues'][0]['value'] ?? '0') ?? 0;
+      return TopCountry(country: country, users: users);
+    }).toList();
+
+    topCountries.sort((a, b) => b.users.compareTo(a.users));
+
+    return AnalyticsData(
+      overview: Overview(
+        activeUsers: activeUsers,
+        sessions: sessions,
+        screenPageViews: screenPageViews,
+        engagementRate: engagementRate,
+      ),
+      dailyUsers: dailyUsers,
+      topCountries: topCountries.take(10).toList(),
+    );
   }
 }
