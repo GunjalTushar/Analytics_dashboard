@@ -20,6 +20,15 @@ migrate_working_dir/
 *.pem
 secrets/
 .secrets/
+google-credentials.json
+service-account.json
+*-key.json
+
+# Backend
+backend/.env
+backend/*.key
+backend/*.pem
+backend/google-credentials.json
 
 # IntelliJ related
 *.iml
